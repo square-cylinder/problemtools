@@ -31,7 +31,7 @@ def convert(options: argparse.Namespace) -> None:
 
     texfile = problem
     # Set up template if necessary
-    with template.Template(problem, language=options.language) as templ:
+    with template.Template(problem, language=options.language, version=options.format_version) as templ:
         texfile = open(templ.get_file_name(), 'r')
 
         origcwd = os.getcwd()
@@ -123,6 +123,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('-L', '--log-level', dest='loglevel', help='set log level (debug, info, warning, error, critical)', default='warning')
     parser.add_argument('-q', '--quiet', dest='quiet', action='store_true', help="quiet", default=False)
     parser.add_argument('-i', '--imgbasedir', dest='imgbasedir', default='')
+    parser.add_argument('-F', '--format-version', dest='format_version', help='choose format version', default="legacy")
     parser.add_argument('problem', help='the problem to convert')
 
     return parser

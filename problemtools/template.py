@@ -14,13 +14,18 @@ def detect_version(problemdir, problemtex):
 
 
 class Template:
-    def __init__(self, problemdir, language=None, force_copy_cls=False):
+    def __init__(self, problemdir, language=None, force_copy_cls=False, version="legacy"):
         if not os.path.isdir(problemdir):
             raise Exception('%s is not a directory' % problemdir)
 
         if problemdir[-1] == '/':
             problemdir = problemdir[:-1]
-        stmtdir = os.path.join(problemdir, 'problem_statement')
+
+        if version == "2023-07":
+            statement_directory = "statement"
+        else:
+            statement_directory = "problem_statement"
+        stmtdir = os.path.join(problemdir, statement_directory)
 
         langs = []
         if glob.glob(os.path.join(stmtdir, 'problem.tex')):

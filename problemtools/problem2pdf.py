@@ -14,7 +14,7 @@ def convert(options: argparse.Namespace) -> bool:
     destfile = string.Template(options.destfile).safe_substitute(problem=problembase)
 
     # Set up template if necessary
-    with template.Template(problem, language=options.language) as templ:
+    with template.Template(problem, language=options.language, version=options.format_version) as templ:
         texfile = templ.get_file_name()
 
         origcwd = os.getcwd()
@@ -50,6 +50,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('-q', '--quiet', dest='quiet', action='store_true', help="quiet", default=False)
     parser.add_argument('-l', '--language', dest='language', help='choose alternate language (2-letter code)', default=None)
     parser.add_argument('-n', '--no-pdf', dest='nopdf', action='store_true', help='run pdflatex in -draftmode', default=False)
+    parser.add_argument('-F', '--format-version', dest='format_version', help='choose format version', default="legacy")
     parser.add_argument('problem', help='the problem to convert')
 
     return parser
