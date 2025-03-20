@@ -31,7 +31,7 @@ def convert(options: argparse.Namespace) -> None:
 
     texfile = problem
     # Set up template if necessary
-    with template.Template(problem, language=options.language, version=options.format_version) as templ:
+    with template.Template(problem, language=options.language) as templ:
         texfile = open(templ.get_file_name(), 'r')
 
         origcwd = os.getcwd()

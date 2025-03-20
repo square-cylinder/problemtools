@@ -14,7 +14,7 @@ def convert(options: argparse.Namespace) -> bool:
     destfile = string.Template(options.destfile).safe_substitute(problem=problembase)
 
     # Set up template if necessary
-    with template.Template(problem, language=options.language, version=options.format_version) as templ:
+    with template.Template(problem, language=options.language) as templ:
         texfile = templ.get_file_name()
 
         origcwd = os.getcwd()
