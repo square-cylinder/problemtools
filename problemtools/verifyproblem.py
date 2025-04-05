@@ -142,6 +142,12 @@ class ProblemAspect(ABC):
     def __init__(self, name: str) -> None:
         self.log = log.getChild(name)
 
+    def fatal(self, msg: str, additional_info: str|None=None, *args) -> None:
+        self._check_res = False
+        ProblemAspect.errors += 1
+        self.log.error(ProblemAspect.__append_additional_info(msg, additional_info), *args)
+        raise VerifyError(msg)
+
     def error(self, msg: str, additional_info: str|None=None, *args) -> None:
         self._check_res = False
         ProblemAspect.errors += 1
@@ -787,11 +793,6 @@ class ProblemConfigBase(ProblemPart):
     PART_NAME = 'config'
     _VALID_LICENSES = ['unknown', 'public domain', 'cc0', 'cc by', 'cc by-sa', 'educational', 'permission']
 
-    # TODO: make sure problem does not continue checking stuff
-    def fatal(self, msg):
-        self.error(msg)
-        print('FATAL ERROR... Weird stuff may happen for now')
-
     def setup(self):
         self.debug('  Loading problem config')
         self.configfile = os.path.join(self.problem.probdir, 'problem.yaml')
@@ -842,7 +843,6 @@ class ProblemConfigBase(ProblemPart):
         return self._check_res
 
 class Config_Legacy(ProblemConfigBase):
-    
     DEFAULT_LIMITS = {
         "time_multiplier": 5,
         "time_safety_margin": 2,
@@ -884,11 +884,21 @@ class Config_Legacy(ProblemConfigBase):
                 if prop == 'uuid':
                     self.check_uuid(self._data[prop])
 
-        if 'rights_owner' not in self._data and self._data['license'] != 'public domain':
-            if 'author' in self._data:
+        if self._data['license'] != 'public domain':
+            if 'rights_owner' in self._data:
+                self._data['rights_owner'] = self._data['rights_owner'].strip()
+            elif 'author' in self._data:
                 self._data['rights_owner'] = self._data['author']
             elif 'source' in self._data:
                 self._data['rights_owner'] = self._data['source']
+            else:
+                self.error('No author, source or rights_owner provided')
+        else:
+            if 'rights_owner' in self._data:
+                self.error('Can not have a rights_owner for a problem in public domain')
+        
+        if not self._data['license'] in ('unknown', 'public domain') and 'rights_owner' not in self._data:
+            self.error('rights_owner needs to be defined when license is not "public domain" or "unknown"')
 
         self._data.setdefault('limits', {})
         for key, default in self.DEFAULT_LIMITS.items():
@@ -907,7 +917,7 @@ class Config_Legacy(ProblemConfigBase):
                 self.fatal(f'grading.objective shmust be either "min" or "max"] (got: "{grading["objective"]}")')
         else:
             self._data['grading']['objective'] = 'max'
-        
+
         if 'show_test_data_groups' in grading:
             if type(grading['show_test_data_groups']) is not bool:
                 self.fatal(f'grading.show_test_data_groups should be of type bool (got: "{grading["show_test_data_groups"]}")')
@@ -962,7 +972,7 @@ class Config_Legacy(ProblemConfigBase):
     def _check_validation(self):
         if self._data['validation-type'] == 'default':
             if len(self._data['validation-params']) > 0:
-                self.error(f'If validation is set to "default", no other arguments are permitted')
+                self.error('If validation is set to "default", no other arguments are permitted')
         elif self._data['validation-type'] == 'custom':
             params = self._data['validation-params']
             for p, cnt in collections.Counter(params).items():
@@ -974,7 +984,7 @@ class Config_Legacy(ProblemConfigBase):
     def _check_source_url(self):
         if 'source' not in self._data:
             if 'source_url' in self._data:
-                self.error(f'source needs to be defined when source_url is defined')
+                self.error('source needs to be defined when source_url is defined')
 
     def _check_custom_groups(self):
         # TODO: implement the check
@@ -1120,7 +1130,6 @@ class Config_2023_07(ProblemConfigBase):
                         else:
                             self.error(f'ORCID must be of type str (got: {type(person["orcid"])})')
 
-
                     if 'kattis' in person:
                         if type(person['kattis']) is str:
                             if person['kattis'].strip() == '':
@@ -1130,9 +1139,17 @@ class Config_2023_07(ProblemConfigBase):
                             person['kattis'] = person['kattis'].strip()
                         else:
                             self.error(f'Kattis username must be of type str (got: {type(person["kattis"])})')
-                    
+
                     new_persons.append(person)
             return new_persons
+
+        if 'rights_owner' in self._data:
+            if type(self._data['rights_owner']) is str:
+                self._data['rights_owner'] = person_check([self._data['rights_owner'].strip()], 'rights_owners')
+            else:
+                self.error(f'rights_owner must be of type str (got: "{self._data["rights_owner"]}" of type: {type(self._data["rights_owner"])})')
+        else:
+            self._data['rights_owner'] = []
 
         if 'credits' in self._data:
             if "traslators" in self._data['credits']:
@@ -1141,26 +1158,63 @@ class Config_2023_07(ProblemConfigBase):
                     if translators.strip() == '':
                         self.error('"traslators" may not be an empty string, remove or set a translator / list of translators')
                     self._data['credits']['traslators'] = {'en': person_check(translators, 'EN_traslators')}
-                
+
                 elif type(translators) is dict:
                     for lang, translator in translators.items():
                         if type(lang) is not str:
                             self.error(f'Traslator language "{lang}" must be of type str (got: {type(lang)})')
-                        
+
                         if lang not in self._statement_languages:
                             self.error(f'Traslator language "{lang}" does not have a corresponding statement')
-                        
-                        
+
                         self._data['credits']['traslators'][lang] = person_check(translator, f'traslators.{lang}')
                 else:
                     self.error(f'Traslator must be of type str or dict (got: {type(translators)})')
-            
+
             similar_credit_fields = ['authors', 'contributors', 'testers', 'packagers', 'acknowledgements']
-            
+
             for field in similar_credit_fields:
                 if field in self._data['credits']:
                     persons = person_check(self._data['credits'][field], field)
                     self._data['credits'][field] = persons
+                    if field == 'authors' and len(self._data['rights_owner']) == 0:
+                        self._data['rights_owner'] = persons
+
+        if 'source' in self._data:
+            ALLOWED_SOURCE_KEYS = {'name', 'url'}
+            if type(self._data['source']) in (str, dict):
+                self._data['source'] = [self._data['source']]
+
+            if type(self._data['source']) is list:
+                for i, val in enumerate(self._data['source']):
+                    if type(val) is str:
+                        self._data[i] = {'name': val}
+                    elif type(val) is dict:
+                        if 'name' not in val:
+                            self.error(f'source needs to have key name (got: {val})')
+
+                        for k in val.keys():
+                            if k not in ALLOWED_SOURCE_KEYS:
+                                self.warning(f'source has unknown key "{k}" (allowed keys: {ALLOWED_SOURCE_KEYS})')
+                            elif type(val[k]) is not str:
+                                self.error(f'source.{k} needs to be of type string (got: "{val[k]}")')
+                    else:
+                        self.error(f'each source needs to be a string or a map (got: "{val}")')
+
+                if len(self._data['rights_owner']) == 0:
+                    self._data['rights_owner'] = self._data['source']
+            else:
+                self.error(f'source needs to be of a string, list or a map (got: "{self._data["source"]}")')
+
+        if self._data['license'] != 'public domain':
+            if len(self._data['rights_owner']) == 0:
+                self.error('No author, source or rights_owner provided')
+        else:
+            if len(self._data['rights_owner']) != 0:
+                self.error('Can not have a rights_owner for a problem in public domain')
+        
+        if not self._data['license'] in ('unknown', 'public domain') and len(self._data['rights_owner']) == 0:
+            self.error('rights_owner needs to be defined when license is not "public domain" or "unknown"')
 
         if 'embargo_until' in self._data:
             val = self._data['embargo_until']
@@ -1185,11 +1239,11 @@ class Config_2023_07(ProblemConfigBase):
         allowed_in_time_multipliers = {'ac_to_time_limit', 'time_limit_to_tle'}
         for k in limits:
             if k not in allowed_keys_limits:
-                self.error(f"Unknown property limits.{k} was given")
+                self.warning(f"Unknown property limits.{k} was given")
             if k == "time_multipliers":
                 for k2 in limits[k]:
                     if k2 not in allowed_in_time_multipliers:
-                        self.error(f"Unknown property limits.time_multipliers.{k2} was given")
+                        self.warning(f"Unknown property limits.time_multipliers.{k2} was given")
 
         for i in ints:
             if i not in limits:
@@ -1243,10 +1297,10 @@ class Config_2023_07(ProblemConfigBase):
                 if type(lang) is not str:
                     self.error(f'Each language in "languages" list must be of type "str" (got: "{langs}")')
                 elif lang not in valid_languages:
-                    self.error(f'Field "languages" contains unknown language "{lang}"')
+                    self.fatal(f'Field "languages" contains unknown language "{lang}"')
             self._data['languages'] = langs
         else:
-            self.error(f'Field "languages" should be "all" or a list of languages (got: "{langs}")')
+            self.fatal(f'Field "languages" should be "all" or a list of languages (got: "{langs}")')
 
         self._data.setdefault('allow_file_writing', False)
         if type(self._data['allow_file_writing']) is not bool:
@@ -1254,7 +1308,7 @@ class Config_2023_07(ProblemConfigBase):
 
         self._data.setdefault('constants', {})
         if type(self._data['constants']) is not dict:
-            self.fatal(f'constants must be of type dictionary (got: "{self._data["constants"]}")')
+            self.fatal(f'constants must be maps (got: "{self._data["constants"]}")')
         else:
             for k, v in self._data['constants'].items():
                 constant_regex = r'[a-zA-Z_][a-zA-Z0-9_]*'
@@ -1266,7 +1320,6 @@ class Config_2023_07(ProblemConfigBase):
 
 
 class ProblemTestCases(ProblemPart):
-
     PART_NAME = 'testdata'
 
     @staticmethod
@@ -2085,7 +2138,7 @@ class Problem(ProblemAspect):
     problem are listed. These should all be a subclass of ProblemPart. The dictionary is in the form
     of category -> part-types. You could for example have 'validators' -> [InputValidators, OutputValidators].
     """
-    def __init__(self, probdir: str, parts: dict[str, list[type]] = PROBLEM_FORMATS[formatversion.VERSION_LEGACY]) -> None:
+    def __init__(self, probdir: str,  args: argparse.Namespace, parts: dict[str, list[type]] = PROBLEM_FORMATS[formatversion.VERSION_LEGACY]) -> None:
         self.part_mapping: dict[str, list[Type[ProblemPart]]] = parts
         self.aspects: set[type] = {v for s in parts.values() for v in s}
         self.probdir = os.path.realpath(probdir)
@@ -2094,6 +2147,12 @@ class Problem(ProblemAspect):
         self.language_config = languages.load_language_config()
         self._data: dict[str, dict] = {}
         self.debug(f'Problem-format: {parts}')
+        self.problem_can_be_checked = True
+        self.args = args
+        ProblemAspect.errors = 0
+        ProblemAspect.warnings = 0
+        ProblemAspect.bail_on_error = self.args.bail_on_error
+        ProblemAspect.consider_warnings_errors = self.args.werror
 
     def get(self, part) -> dict:
         if isinstance(part, type) and issubclass(part, ProblemPart):
@@ -2134,8 +2193,12 @@ class Problem(ProblemAspect):
             self._data[_class.PART_NAME] = self._classes[_class.PART_NAME].setup()
             initialized.add(_class.PART_NAME)
 
-        for c in self.aspects:
-            init(c)
+        try:
+            for c in self.aspects:
+                init(c)
+        except VerifyError:
+            self.problem_can_be_checked = False
+            return self
         
         return self
 
@@ -2145,17 +2208,12 @@ class Problem(ProblemAspect):
     def __str__(self) -> str:
         return str(self.shortname)
 
-    def check(self, args: argparse.Namespace) -> tuple[int, int]:
-        if self.shortname is None:
-            return 1, 0
+    def check(self) -> tuple[int, int]:
+        if self.shortname is None or not self.problem_can_be_checked:
+            return ProblemAspect.errors, ProblemAspect.warnings
 
-        ProblemAspect.errors = 0
-        ProblemAspect.warnings = 0
-        ProblemAspect.bail_on_error = args.bail_on_error
-        ProblemAspect.consider_warnings_errors = args.werror
-
-        executor = ThreadPoolExecutor(args.threads) if args.threads > 1 else None
-        context = Context(args, executor)
+        executor = ThreadPoolExecutor(self.args.threads) if self.args.threads > 1 else None
+        context = Context(self.args, executor)
 
         try:
             if not re.match('^[a-z0-9]+$', self.shortname):
@@ -2166,7 +2224,7 @@ class Problem(ProblemAspect):
             run.limit.check_limit_capabilities(self)
             
             # Skip any parts that do not belong to the format
-            parts = [part for part in args.parts if part in self.part_mapping]
+            parts = [part for part in self.args.parts if part in self.part_mapping]
 
             if executor:
                 for part in parts:
@@ -2292,8 +2350,8 @@ def main() -> None:
             
             print(f'Loading problem {os.path.basename(os.path.realpath(problemdir))} with format version {problem_version}')
             format = PROBLEM_FORMATS[problem_version]
-            with Problem(problemdir, format) as prob:
-                errors, warnings = prob.check(args)
+            with Problem(problemdir, args, format) as prob:
+                errors, warnings = prob.check()
                 p = lambda x: '' if x == 1 else 's'
                 print(f'{prob.shortname} tested: {errors} error{p(errors)}, {warnings} warning{p(warnings)}')
                 total_errors += errors
