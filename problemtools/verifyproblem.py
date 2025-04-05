@@ -906,7 +906,7 @@ class Config_Legacy(ProblemConfigBase):
             val = self._data['limits'][key]
             if key not in ('time_multiplier', 'time_safety_margin') and type(val) is float:
                 self._data['limits'][key] = int(val)
-                self.warning(f'Property limits.{key} of type int was given as a float. Using {self._data['limits'][val]}')
+                self.warning(f'Property limits.{key} of type int was given as a float. Using {self._data["limits"][val]}')
             elif type(val) not in (float, int):
                 self.fatal(f'Property limts.{key} was of incorrect type. Acceptable types are int and float. (got: "{val}")')
 
